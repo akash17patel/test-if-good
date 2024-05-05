@@ -9,8 +9,6 @@ What do we need database for?
 
 // Import our two packages
 
-import 'dart:async';
-
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -54,9 +52,6 @@ class MindliftDatabase {
     // Create a table for settings
     await _createTable(
         db, 'Settings', 'id INTEGER PRIMARY KEY, key TEXT, value TEXT');
-
-    await _createTable(
-        db, 'CrisisDetection', 'id INTEGER PRIMARY KEY, value TEXT');
   }
 
   // Generic method to create a table
@@ -254,26 +249,5 @@ class MindliftDatabase {
     } else {
       return false; // Default value if not found
     }
-  }
-
-  Future<bool> getCrisisDetection() async {
-    final db = await database;
-    List<Map<String, dynamic>> results =
-        await db.query('CrisisDetection', where: 'id = 1');
-    if (results.isNotEmpty) {
-      return results.first['value'] == '1';
-    } else {
-      return false; // Default value if not found
-    }
-  }
-
-  Future<void> setCrisisDetection(bool detect) async {
-    final db = await database;
-    print("insert crisis");
-    await db.insert(
-      'CrisisDetection',
-      {'id': 1, 'value': detect ? '1' : '0'},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
   }
 }

@@ -15,14 +15,6 @@ class _ConversationHistoryScreenState extends State<ConversationHistoryScreen> {
   DateTime? _selectedDay;
 
   @override
-  void initState() {
-    _selectedDay = DateTime.now();
-    _loadChatMessages(_selectedDay!);
-    
-    super.initState();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('Conversation History')),
