@@ -497,7 +497,7 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  // Future<void> _setDarkMode(bool isDarkMode) async {
+   // Future<void> _setDarkMode(bool isDarkMode) async {
   //   await MindliftDatabase.instance.setDarkMode(isDarkMode);
   //   setState(() {
   //     _isDarkMode = isDarkMode;
