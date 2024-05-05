@@ -1,34 +1,67 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
+import 'package:mind_lift/resources_page.dart';
 import 'conversation_history_screen.dart';
 import 'goals_screen.dart';
 import 'emotion_history.dart';
 import 'emergency_contact.dart';
-import 'notificationspage.dart';
 import 'services/local_notification_service.dart';
+import 'services/NotificationDetailsPage.dart'; // Import the NotificationDetailsPage
 import 'package:permission_handler/permission_handler.dart';
 import 'services/database.dart';
 import 'services/AIClassifier.dart';
 import 'chat_screen.dart';
+import 'dart:async';
+import 'services/audio_AI.dart';
+
+// Define 'service' as a global variable
+final LocalNotificationService service = LocalNotificationService();
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  SharedPreferences pref = await SharedPreferences.getInstance();
-  await requestPermissions();
-  MindliftDatabase.instance.database; // Initialize the DB
-  await AIClassifier.instance.initModel(); // Init AI model singleton
-  runApp(MyApp(
-    sharedPreferences: pref,
-  ));
+  try {
+    WidgetsFlutterBinding.ensureInitialized();
+    print("Flutter bindings initialized.");
+
+    await requestPermissions();
+    print("Permissions requested.");
+
+    await MindliftDatabase.instance.database; // Initialize the DB
+    print("Database initialized.");
+
+    await AIClassifier.instance.initModel(); // Init AI model singleton
+    print("AI model initialized.");
+
+    await service.initialize();
+
+    bool crisisDetect = await MindliftDatabase.instance.getCrisisDetection();
+
+    if (crisisDetect) print("Crisis Detection Allowed");
+
+    if (await Permission.microphone.isGranted && crisisDetect) { // Check microphone permission explicitly
+      print("Microphone permission granted.");
+      //startForegroundService();
+      // Moving from foreground service for demo functionality.
+
+      await AudioClassification.instance.turnOn();
+    } else {
+      print("Microphone permission not granted.");
+    }
+
+    runApp(MyApp());
+    print("App running.");
+  } catch (e, s) {
+    print("Error during initialization: $e");
+    print("Stack trace: $s");
+  }
 }
 
 Future<void> requestPermissions() async {
   await Permission.microphone.request();
-  await Permission.sms.request();
+  //await Permission.sms.request();
   await Permission.notification.request();
   await Permission.phone.request();
-  await Permission.location.request();
+  await Permission.storage.request();
+  //await Permission.location.request();
 }
 
 Future<void> initializeNotifications() async {
@@ -36,51 +69,20 @@ Future<void> initializeNotifications() async {
   await localNotificationService.initialize();
 }
 
-class MyApp extends StatefulWidget {
-  final SharedPreferences sharedPreferences;
-  MyApp({super.key, required this.sharedPreferences});
-
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  bool isDarkMode = false;
-
-  @override
-  void initState() {
-    isDarkMode = widget.sharedPreferences.getBool('isDarkTheme') ?? false;
-    super.initState();
-  }
-
-  toggleDarkTheme() async {
-    SharedPreferences prefs = widget.sharedPreferences;
-    isDarkMode = !isDarkMode;
-    await prefs.setBool('isDarkTheme', isDarkMode);
-    setState(() {});
-  }
-
+class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'MINDLIFT',
-      theme: isDarkMode ? ThemeData.dark() : ThemeData.light(),
-      // theme: ThemeData(
-      //   primarySwatch: Colors.purple,
-      // ),
-
-      home: SplashScreen(
-        toggleDarkThemeCallback: toggleDarkTheme,
+      theme: ThemeData(
+        primarySwatch: Colors.purple,
       ),
+      home: SplashScreen(),
     );
   }
 }
 
 class SplashScreen extends StatefulWidget {
-  final VoidCallback toggleDarkThemeCallback;
-
-  const SplashScreen({super.key, required this.toggleDarkThemeCallback});
-
   @override
   _SplashScreenState createState() => _SplashScreenState();
 }
@@ -106,10 +108,7 @@ class _SplashScreenState extends State<SplashScreen> {
   void navigateToMainContent() {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-          builder: (context) => MyAppContent(
-                toggleDarkThemeCallback: widget.toggleDarkThemeCallback,
-              )),
+      MaterialPageRoute(builder: (context) => MyAppContent()),
     );
   }
 
@@ -123,7 +122,7 @@ class _SplashScreenState extends State<SplashScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text(
+                Text(
                   'Welcome to MINDLIFT!',
                   style: TextStyle(
                     fontSize: 24,
@@ -152,7 +151,7 @@ class _SplashScreenState extends State<SplashScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (_isPincodeEnabled)
-                  const Text(
+                  Text(
                     'Enter PIN Code',
                     style: TextStyle(
                       fontSize: 24,
@@ -188,16 +187,20 @@ class _SplashScreenState extends State<SplashScreen> {
                     child: Text('Submit'),
                   ),
                 if (!_isPincodeEnabled)
-                  Image.asset(
-                    'assets/ML.png',
-                    height: 120, // Adjust the height as needed
+                  Column(
+                    children: [
+                      Image.asset(
+                        'assets/ML.png',
+                        height: 120, // Adjust the height as needed
+                      ),
+                      ElevatedButton(
+                        onPressed: () {
+                          navigateToMainContent();
+                        },
+                        child: Text('CONTINUE TO MINDLIFT'),
+                      ),
+                    ],
                   ),
-                ElevatedButton(
-                  onPressed: () {
-                    navigateToMainContent();
-                  },
-                  child: Text('CONTINUE TO MINDLIFT'),
-                ),
               ],
             ),
           ),
@@ -208,29 +211,15 @@ class _SplashScreenState extends State<SplashScreen> {
 }
 
 class MyAppContent extends StatefulWidget {
-  final VoidCallback toggleDarkThemeCallback;
-
-  const MyAppContent({super.key, required this.toggleDarkThemeCallback});
-
   @override
   _MyAppContentState createState() => _MyAppContentState();
 }
 
 class _MyAppContentState extends State<MyAppContent> {
-  VoidCallback? toggleCallback;
-  List<Widget> _pages = [];
-
-  @override
-  void initState() {
-    toggleCallback = widget.toggleDarkThemeCallback;
-    //  getDarkModeSettings();
-    _pages = [
-      HomePage(),
-      SettingsPage(toggleDarkThemeCallback: toggleCallback!),
-    ];
-
-    super.initState();
-  }
+  final List<Widget> _pages = [
+    HomePage(),
+    SettingsPage(),
+  ];
 
   final PageController _pageController = PageController();
   int _selectedIndex = 0;
@@ -331,7 +320,6 @@ class _MyAppContentState extends State<MyAppContent> {
 // Example home page widget
 class HomePage extends StatelessWidget {
   // List of names for each button
-
   final List<String> buttonNames = [
     'Button 0 Name',
     'Button 1 Name',
@@ -341,12 +329,6 @@ class HomePage extends StatelessWidget {
     'Button 5 Name',
   ];
 
-  Future<bool> getDarkModeSettings() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    bool _isDarkMode = prefs.getBool('isDarkTheme') ?? false;
-    return _isDarkMode;
-  }
-
   @override
   Widget build(BuildContext context) {
     // Set the text for the "My Goals" button
@@ -355,123 +337,109 @@ class HomePage extends StatelessWidget {
     buttonNames[2] = 'My Goals';
     buttonNames[3] = 'Emotion History';
     buttonNames[4] = 'Emergency Contact';
-    buttonNames[5] = 'Notifications Test';
+    buttonNames[5] = 'Resources';
 
-    return FutureBuilder<bool>(
-        future: getDarkModeSettings(),
-        builder: (context, snapshot) {
-          return ListView(
-            padding: EdgeInsets.all(20),
-            children: [
-              GridView.count(
-                shrinkWrap: true,
-                crossAxisCount: 2, // 2 buttons per row
-                mainAxisSpacing: 16, // Spacing between rows
-                crossAxisSpacing: 16, // Spacing between columns
-                childAspectRatio:
-                    1, // Adjust the aspect ratio for button height
-                children: List.generate(6, (index) {
-                  return ElevatedButton(
-                    onPressed: () {
-                      // Navigate to a new screen when button is pressed
-                      switch (index) {
-                        case 0:
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ChatScreen(),
-                            ),
-                          );
-                          break;
-                        case 1:
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ConversationHistoryScreen(),
-                            ),
-                          );
-                          break;
-                        case 2:
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => Goals(),
-                            ),
-                          );
-                          break;
-                        case 3:
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => EmotionHistory(),
-                            ),
-                          );
-                          break;
-                        case 4:
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => EmergencyContactsPage(),
-                            ),
-                          );
-                          break;
-                        case 5:
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => NotificationsPage(),
-                            ),
-                          );
-                          break;
-                        default:
-                          break;
-                      }
-                    },
-                    style: ButtonStyle(
-                      backgroundColor: snapshot.data == true
-                          ? MaterialStateProperty.all<Color>(
-                              Colors.black.withOpacity(.75))
-                          : MaterialStateProperty.all<Color>(
-                              const Color.fromRGBO(255, 255, 255, 0.7)),
-                      textStyle: MaterialStateProperty.all<TextStyle>(
-                        TextStyle(fontSize: 20),
+    return ListView(
+      padding: EdgeInsets.all(20),
+      children: [
+        GridView.count(
+          shrinkWrap: true,
+          crossAxisCount: 2, // 2 buttons per row
+          mainAxisSpacing: 16, // Spacing between rows
+          crossAxisSpacing: 16, // Spacing between columns
+          childAspectRatio: 1, // Adjust the aspect ratio for button height
+          children: List.generate(6, (index) {
+            return ElevatedButton(
+              onPressed: () {
+                // Navigate to a new screen when button is pressed
+                switch (index) {
+                  case 0:
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ChatScreen(),
                       ),
-                      shape: MaterialStateProperty.all<RoundedRectangleBorder>(
-                        RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                                60), // Set border radius to 0 for square shape
-                            side: BorderSide(
-                              color: snapshot.data == true
-                                  ? Colors.grey
-                                  : Colors.white,
-                              width: 4,
-                            )),
+                    );
+                    break;
+                  case 1:
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ConversationHistoryScreen(),
                       ),
-                    ),
-                    child: Center(
-                      child: Container(
-                        alignment: Alignment.center,
-                        child: Text(
-                          buttonNames[index], // Centered button text
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.purple),
-                        ),
+                    );
+                    break;
+                  case 2:
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => Goals(),
                       ),
-                    ),
-                  );
-                }),
+                    );
+                    break;
+                  case 3:
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => EmotionHistory(),
+                      ),
+                    );
+                    break;
+                  case 4:
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => EmergencyContactsPage(),
+                      ),
+                    );
+                    break;
+                  case 5:
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ResourcesPage(),
+                      ),
+                    );
+                    break;
+                  default:
+                    break;
+                }
+              },
+              style: ButtonStyle(
+                backgroundColor: MaterialStateProperty.all<Color>(
+                    const Color.fromRGBO(255, 255, 255, 0.7)),
+                textStyle: MaterialStateProperty.all<TextStyle>(
+                  TextStyle(fontSize: 20),
+                ),
+                shape: MaterialStateProperty.all<RoundedRectangleBorder>(
+                  RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(
+                          60), // Set border radius to 0 for square shape
+                      side: BorderSide(
+                        color: Colors.white,
+                        width: 4,
+                      )),
+                ),
               ),
-            ],
-          );
-        });
+              child: Center(
+                child: Container(
+                  alignment: Alignment.center,
+                  child: Text(
+                    buttonNames[index], // Centered button text
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
   }
 }
 
 // Settings page widget
 class SettingsPage extends StatefulWidget {
-  final VoidCallback toggleDarkThemeCallback;
-  const SettingsPage({super.key, required this.toggleDarkThemeCallback});
-
   @override
   _SettingsPageState createState() => _SettingsPageState();
 }
@@ -479,30 +447,34 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   bool _isDarkMode = false; // Variable to store dark mode state
   bool _isPincodeEnabled = false; // Variable to store pincode enabled state
+  bool _isCrisisDetectionEnabled = false;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
-    getDarkModeSettings();
+    listenToNotification(context);
+    service.initialize();
   }
 
   Future<void> _loadSettings() async {
-    //  bool darkMode = await MindliftDatabase.instance.getDarkMode();
+    bool darkMode = await MindliftDatabase.instance.getDarkMode();
     bool pincodeEnabled = await MindliftDatabase.instance.getPincode() != null;
+    bool crisisDetection = await MindliftDatabase.instance.getCrisisDetection();
 
     setState(() {
-      // _isDarkMode = darkMode;
+      _isDarkMode = darkMode;
       _isPincodeEnabled = pincodeEnabled;
+      _isCrisisDetectionEnabled = crisisDetection;
     });
   }
 
-  // Future<void> _setDarkMode(bool isDarkMode) async {
-  //   await MindliftDatabase.instance.setDarkMode(isDarkMode);
-  //   setState(() {
-  //     _isDarkMode = isDarkMode;
-  //   });
-  // }
+  Future<void> _setDarkMode(bool isDarkMode) async {
+    await MindliftDatabase.instance.setDarkMode(isDarkMode);
+    setState(() {
+      _isDarkMode = isDarkMode;
+    });
+  }
 
   Future<void> _setPincodeEnabled(bool isEnabled) async {
     if (isEnabled) {
@@ -515,12 +487,69 @@ class _SettingsPageState extends State<SettingsPage> {
         });
       }
     } else {
-      // Clear Pincode
-      await MindliftDatabase.instance.delete('Pincode', 1);
-      setState(() {
-        _isPincodeEnabled = false;
-      });
+      // Check if PIN code is set before disabling
+      bool isPincodeSet = await MindliftDatabase.instance.getPincode() != null;
+      if (isPincodeSet) {
+        // Ask for current PIN code
+        String? currentPincode = await _showCurrentPincodePopup();
+        String? savedPincode = await MindliftDatabase.instance.getPincode();
+
+        if (currentPincode == savedPincode) {
+          // If the current PIN code matches, then disable PIN code
+          await MindliftDatabase.instance.delete('Pincode', 1);
+          setState(() {
+            _isPincodeEnabled = false;
+          });
+        } else {
+          // If the current PIN code does not match, show error message
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Incorrect PIN Code. Please try again.'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      } else {
+        // If PIN code is not set, simply disable PIN code
+        await MindliftDatabase.instance.delete('Pincode', 1);
+        setState(() {
+          _isPincodeEnabled = false;
+        });
+      }
     }
+  }
+
+  Future<String?> _showCurrentPincodePopup() async {
+    String? pincode;
+
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Enter Current PIN Code'),
+          content: TextField(
+            onChanged: (value) {
+              pincode = value;
+            },
+            keyboardType: TextInputType.number,
+            maxLength: 4,
+            decoration: InputDecoration(
+              hintText: 'Enter 4-digit Pincode',
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(pincode);
+              },
+              child: Text('Submit'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return pincode;
   }
 
   Future<String?> _showPincodeSetupPopup() async {
@@ -555,14 +584,10 @@ class _SettingsPageState extends State<SettingsPage> {
 
     return pincode;
   }
-
-  getDarkModeSettings() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    _isDarkMode = prefs.getBool('isDarkTheme') ?? false;
-  }
-
+  
   @override
   Widget build(BuildContext context) {
+    listenToNotification(context); // Listen to notifications
     return Padding(
       padding: EdgeInsets.all(15), // 5 pixels padding from all sides
       child: Container(
@@ -588,7 +613,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
             ),
-            Padding(
+            /*Padding(
               padding: EdgeInsets.symmetric(horizontal: 15),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -600,18 +625,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       color: Colors.white,
                     ),
                   ),
-                  // InkWell(
-                  //   onTap:
-                  //     widget.toggleDarkThemeCallback,
-
-                  //   child: Text('123')),
                   Switch(
                     value: _isDarkMode,
                     onChanged: (value) {
-                      //  _setDarkMode(value);
-                      _isDarkMode = !_isDarkMode;
-                      widget.toggleDarkThemeCallback();
-                      setState(() {});
+                      _setDarkMode(value);
                     },
                     activeColor: Colors.green,
                     inactiveTrackColor: Colors.red,
@@ -619,7 +636,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
             ),
-            Padding(
+            */Padding(
               padding: EdgeInsets.symmetric(horizontal: 15),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -642,10 +659,128 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
             ),
+            Padding(
+              padding: EdgeInsets.symmetric(vertical: 10, horizontal: 15),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Crisis Detection',
+                    style: TextStyle(
+                      fontSize: 20,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Switch(
+                    value: _isCrisisDetectionEnabled,
+                    onChanged: (value) {
+                      _setCrisisDetectionEnabled(value);
+                    },
+                    activeColor: Colors.green,
+                    inactiveTrackColor: Colors.red,
+                  ),
+                ],
+              ),
+            ),
+            /*Padding(
+              padding: EdgeInsets.symmetric(horizontal: 15),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Set Notification Reminder',
+                    style: TextStyle(
+                      fontSize: 20,
+                      color: Colors.white,
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      await service.showNotification(
+                        id: 0,
+                        title: 'Notification Title',
+                        body: 'Test is working',
+                      );
+                    },
+                    child: Text(
+                      'Set Reminder',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.white,
+                      ),
+                    ),
+                    style: ButtonStyle(
+                      backgroundColor: MaterialStateProperty.all(Colors.green),
+                      padding: MaterialStateProperty.all(
+                        EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      ),
+                      shape: MaterialStateProperty.all(
+                        RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),*/
           ],
         ),
       ),
     );
+  }
+
+  // Modify the listenToNotification function to accept 'context' as a parameter
+  void listenToNotification(BuildContext context) {
+    service.onNotificationClick.stream.listen((String? payload) {
+      onNotificationListener(context, payload);
+    });
+  }
+
+// Modify the onNotificationListener function to accept 'context' as a parameter
+  void onNotificationListener(BuildContext context, String? payload) {
+    if (payload != null && payload.isNotEmpty) {
+      print('payload $payload');
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => NotificationDetailsPage(
+              payload: payload, delay: Duration(seconds: 10)),
+        ),
+      );
+    }
+  }
+
+  void _setCrisisDetectionEnabled(bool value) async {
+    if (await Permission.microphone.isGranted) {
+      await MindliftDatabase.instance.setCrisisDetection(value);
+
+      // If value is true then turn detection, otherwise off.
+      if (value) await AudioClassification.instance.turnOn();
+      else await AudioClassification.instance.turnOff();
+      setState(() {
+        _isCrisisDetectionEnabled = value;
+      });
+    }
+    else {
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: Text("Microphone Permission Required"),
+            content: Text("Crisis detection only works with the microphone enabled. Please enable microphone access in your settings."),
+            actions: <Widget>[
+              TextButton(
+                child: Text("OK"),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+              ),
+            ],
+          );
+        },
+      );
+    }
   }
 }
 
